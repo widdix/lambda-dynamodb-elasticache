@@ -1,0 +1,165 @@
+{
+	"AWSTemplateFormatVersion": "2010-09-09",
+	"Description": "ElastiCache AWS School",
+	"Parameters": {
+		"LambdaCodeBucket": {
+			"Description": "The name of the S3 bucket containing the source code for the Lambda function.",
+			"Type": "String"
+		},
+		"LambdaCodeKey": {
+			"Description": "The key of the S3 object containing the source code for the Lambda function.",
+			"Type": "String"
+		},
+		"VPC": {
+			"Description": "The VPC for Lambda function and ElastiCache.",
+			"Type": "AWS::EC2::VPC::Id"
+		},
+		"Subnets": {
+			"Description": "The Subnets for Lambda function and ElastiCache.",
+			"Type": "List<AWS::EC2::Subnet::Id>"
+		}
+	},
+	"Resources": {
+		"DynamoDB": {
+			"Type": "AWS::DynamoDB::Table",
+			"Properties": {
+				"AttributeDefinitions": [{"AttributeName": "Id","AttributeType": "S"}],
+				"KeySchema": [{"AttributeName": "Id", "KeyType": "HASH"}],
+				"ProvisionedThroughput": {
+					"ReadCapacityUnits": "1",
+					"WriteCapacityUnits": "1"
+				},
+				"TableName": {"Ref": "AWS::StackName"},
+				"StreamSpecification": {
+					"StreamViewType": "NEW_IMAGE"
+				}
+			}
+		},
+		"ElastiCacheSecurityGroup": {
+			"Type": "AWS::EC2::SecurityGroup",
+			"Properties": {
+				"GroupDescription": "Elasticache Security Group",
+				"VpcId": {"Ref": "VPC"},
+				"SecurityGroupIngress": [{ 
+					"IpProtocol": "tcp", 
+					"FromPort": "6379", 
+					"ToPort": "6379",
+					"SourceSecurityGroupId": {"Ref": "LambdaSecurityGroup"}
+				}]
+			}
+		},
+		"ElastiCacheSubnetGroup" : {
+			"Type" : "AWS::ElastiCache::SubnetGroup",
+			"Properties" : {
+				"Description" : "ElastiCache Subnet Group",
+				"SubnetIds" : {"Ref": "Subnets"}
+			}
+		},
+		"ElasticacheCluster": {
+			"Type": "AWS::ElastiCache::CacheCluster",
+			"Properties": {
+				"AutoMinorVersionUpgrade": "true",
+				"Engine": "redis",
+				"CacheNodeType": "cache.t1.micro",
+				"NumCacheNodes": "1",
+				"VpcSecurityGroupIds": [{"Fn::GetAtt": ["ElastiCacheSecurityGroup", "GroupId"]}],
+				"CacheSubnetGroupName": {"Ref": "ElastiCacheSubnetGroup"}
+			}
+		},
+		"LambdaSecurityGroup": {
+			"Type": "AWS::EC2::SecurityGroup",
+			"Properties": {
+				"GroupDescription": "Lambda Security Group",
+				"VpcId": {"Ref": "VPC"}
+			}
+		},
+		"EventSourceMapping": {
+			"Type": "AWS::Lambda::EventSourceMapping",
+			"Properties": {
+				"EventSourceArn": {"Fn::GetAtt": ["DynamoDB", "StreamArn"]},
+				"FunctionName": {"Fn::GetAtt": ["Lambda", "Arn"]},
+				"StartingPosition": "TRIM_HORIZON"
+			}
+		},
+		"LambdaRole": {
+			"Type": "AWS::IAM::Role",
+			"Properties": {
+				"AssumeRolePolicyDocument": {
+					"Version": "2012-10-17",
+					"Statement": [{
+						"Effect": "Allow",
+						"Principal": {"Service": "lambda.amazonaws.com"},
+						"Action": ["sts:AssumeRole"]
+					}]
+				},
+				"Path": "/",
+				"Policies": [{
+					"PolicyName": "logs",
+					"PolicyDocument": {
+						"Statement": [{
+							"Effect": "Allow",
+							"Action": [
+								"logs:CreateLogGroup",
+								"logs:CreateLogStream",
+								"logs:PutLogEvents"
+							],
+							"Resource": "arn:aws:logs:*:*:*"
+						}]
+					}
+				},
+				{
+					"PolicyName": "ec2",
+					"PolicyDocument": {
+						"Statement": [{
+							"Effect": "Allow",
+							"Action": [
+								"ec2:CreateNetworkInterface",
+								"ec2:DescribeNetworkInterfaces",
+								"ec2:DeleteNetworkInterface"
+							],
+							"Resource": "*"
+						}]
+					}
+				},
+				{
+					"PolicyName": "dynamodb",
+					"PolicyDocument": {
+						"Statement": [{
+							"Action": [
+								"dynamodb:PutItem",
+								"dynamodb:UpdateItem",
+								"dynamodb:DescribeStream",
+								"dynamodb:GetRecords",
+								"dynamodb:GetShardIterator",
+								"dynamodb:ListStreams"
+							],
+							"Effect": "Allow",
+							"Resource": [
+								{"Fn::Join": ["", ["arn:aws:dynamodb:*:", {"Ref": "AWS::AccountId"}, ":table/", {"Ref": "DynamoDB"}]]},
+								{"Fn::Join": ["", ["arn:aws:dynamodb:*:", {"Ref": "AWS::AccountId"}, ":table/", {"Ref": "DynamoDB"}, "/stream/*"]]}
+							]
+						}]
+					}
+				}]
+			}
+		},
+		"Lambda": {
+			"Type": "AWS::Lambda::Function",
+			"Properties": {
+				"Code": {
+					"S3Bucket" : {"Ref": "LambdaCodeBucket"},
+					"S3Key" : {"Ref": "LambdaCodeKey"}
+				},
+				"Handler": "index.handler",
+				"MemorySize": 128,
+				"Role": {"Fn::GetAtt": ["LambdaRole", "Arn"]},
+				"Runtime": "nodejs4.3",
+				"Timeout": 60,
+				"VpcConfig": {
+					"SecurityGroupIds": [{"Ref": "LambdaSecurityGroup"}],
+					"SubnetIds": {"Ref": "Subnets"} 
+				}
+			}
+		}
+	}
+}
