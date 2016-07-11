@@ -1,6 +1,6 @@
 {
 	"AWSTemplateFormatVersion": "2010-09-09",
-	"Description": "ElastiCache AWS School",
+	"Description": "DynamoDB with ElastiCache",
 	"Parameters": {
 		"LambdaCodeBucket": {
 			"Description": "The name of the S3 bucket containing the source code for the Lambda function.",
