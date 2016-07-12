@@ -4,7 +4,7 @@ var async = require("async");
 function handler(event, context, globalCallback) {
     console.log(JSON.stringify(event));
 
-    var redisClient = redis.createClient({host: "ser-el-1nole16f83cy5.udcuwc.0001.use1.cache.amazonaws.com"});
+    var redisClient = redis.createClient({host: "<REDIS_HOST>"});
 
     async.each(event.Records, function(record, callback) { 
         var key = record.dynamodb.Keys.Id.S;
@@ -12,25 +12,16 @@ function handler(event, context, globalCallback) {
             var value = JSON.stringify(record.dynamodb.NewImage);
             console.log("Updating cache: " + key + ": " + value);
             redisClient.set(key, value, function(err) {
-                if(err) {
-                    callback(err);
-                } else {
-                    redisClient.quit();
-                    callback();
-                }
+                callback(err);
             });
         } else if (record.eventName === "REMOVE") {
             console.log("Deleting cache: " + key);
             redisClient.del(key, function(err) {
-                if(err) {
-                    callback(err);
-                } else {
-                    redisClient.quit();
-                    callback();
-                }
+                callback(err);
             });
         }
     }, function(err){
+        redisClient.quit();
         if(err) {
             console.log("Error " + err);
             globalCallback(err);
